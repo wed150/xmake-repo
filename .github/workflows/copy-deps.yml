@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'packages/l/levilamina/**'
   workflow_dispatch:
 
 permissions:
