@@ -3,103 +3,58 @@ package("levilamina-lib")
     set_description("LeviLamina prebuilt SDK")
 
     add_defines("ENTT_PACKED_PAGE=128", "ENTT_SPARSE_PAGE=2048", "ENTT_NO_MIXIN")
-
     add_configs("target_type", {default = "server", values = {"server", "client"}})
     add_configs("mode", {default = "release", values = {"debug", "release"}})
 
-    -- ============================================================
-    -- 下载源（按优先级排列）
-    -- ============================================================
-    -- 优先：你的仓库里的预编译 SDK
-    -- 用 version 目录文件管理版本号
-    -- 注：$(mode) 和 $(target_type) 需要 xmake >= 2.8 支持在 url 里展开 config 值
-    -- 如果展开不生效，退回到固定写法见下方 fallback
+    add_urls("https://github.com/LiteLDev/LeviLamina.git")
+    add_versionfiles("versions/versions.txt")
 
-    -- 版本文件（你的仓库有预编译的版本列在这里）
-    -- 格式：每行 "版本号 sha256" 或 "版本号 源码commit"
-    -- 预编译 zip 的 sha256 填这里
-    add_versionfiles("versions/prebuilt_versions.txt")
-
-    -- fallback：原作者源码仓库（没有预编译时走这里）
-    add_urls("https://github.com/LiteLDev/LeviLamina.git", {alias = "source"})
-    add_versionfiles("versions/versions.txt")  -- 原作者那份
-
-    -- ============================================================
-    -- on_load：读版本模块决定 deps/defines（原样照抄原作者）
-    -- ============================================================
     on_load(function (package)
-        local target_type = package:config("target_type")
-        package:add("urls", format("https://github.com/wed150/Levilamina-lib/releases/download/v$(version)/levilamina-sdk-v$(version)-$(target_type)-$(mode)-windows-x64.zip", target_type))
+        local tt = package:config("target_type")
+        package:add("defines", tt == "server" and "LL_PLAT_S" or "LL_PLAT_C")
+
+        local v = package:version_str()
         import("core.base.semver")
-        local version = package:version_str()
-        local sem = semver.try_parse(version)
-        if sem and sem:le("0.12.4") then
-            version = "old"
-        end
-        version = string.gsub(version, "%.", "_")
+        local sem = semver.try_parse(v)
+        if sem and sem:le("0.12.4") then v = "old" end
+        v = v:gsub("%.", "_")
 
-        try {
-            function ()
-                import("versions." .. version).load(package)
-            end,
-            catch {
-                function (e)
-                    cprint(
-                        "${bright yellow}warning: ${clear}Unknown version: ${bright cyan}"
-                        .. version .. "${clear}, will use main branch dependencies."
-                    )
-                    import("versions.main").load(package)
-                end
-            }
-        }
-
-        if package:config("target_type") == "server" then
-            package:add("defines", "LL_PLAT_S")
+        local mod = import("versions." .. v, {try = true})
+        if mod then
+            mod.load(package)
         else
-            package:add("defines", "LL_PLAT_C")
+            import("versions.main").load(package)
         end
     end)
 
-    -- ============================================================
-    -- on_install：判断走预编译还是源码编译
-    -- ============================================================
-on_install(function (package)
-    local version = package:version_str()
+    on_install(function (package)
+        local tt = package:config("target_type")
+        local mode = package:config("mode")
+        local ver = package:version_str()
+        local key = ver .. "-windows-" .. mode .. "-" .. tt
 
-    -- 直接读 prebuilt_versions.txt 判断是否有预编译
-    local has_prebuilt = false
-    local f = io.open("versions/prebuilt_versions.txt", "r")
-    if f then
-        for line in f:lines() do
-            local ver = line:trim():split("%s+")[1]
-            if ver == version then
-                has_prebuilt = true
-                break
+        local f = io.open(package:scriptdir() .. "/versions/prebuilt_versions.txt")
+        local sha
+        if f then
+            for line in f:lines() do
+                local k, s = line:match("^(%S+)%s+(%S+)$")
+                if k == key then sha = s; break end
             end
+            f:close()
         end
-        f:close()
-    end
 
-    if has_prebuilt then
-        -- 预编译路径
-        if os.isdir("include") then
-            os.cp("include/*", package:installdir("include"))
-        end
-        if os.isdir("lib") then
-            os.cp("lib/*", package:installdir("lib"))
-        end
-        if os.isdir("bin") then
-            os.cp("bin/*", package:installdir("bin"))
-        end
-    else
-        -- fallback 源码编译
-        cprint("${bright yellow}warning: ${clear}No precompiled version: ${bright cyan}"
-            .. version .. "${clear}, will compile using the source code.")
-        if package:config("target_type") == "server" then
-            import("package.tools.xmake").install(package)
+        if sha then
+            local file = ("levilamina-sdk-v%s-%s-%s-windows-x64.zip"):format(ver, tt, mode)
+            local url = ("https://github.com/wed150/Levilamina-lib/releases/download/v%s/%s"):format(ver, file)
+            local zip = path.join(os.tmpdir(), file)
+
+            import("net.http").download(url, zip, {sha256 = sha})
+            import("utils.archive").extract(zip, package:installdir())
         else
-            import("package.tools.xmake").install(package, {"--target_type=client"})
+            local configs = {"-b", "v" .. ver}
+            if tt == "client" then
+                table.insert(configs, "--target_type=client")
+            end
+            import("package.tools.xmake").install(package, configs)
         end
-    end
-end)
-
+    end)
