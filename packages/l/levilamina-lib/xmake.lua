@@ -51,10 +51,9 @@ package("levilamina-lib")
             import("net.http").download(url, zip, {sha256 = sha})
             import("utils.archive").extract(zip, package:installdir())
         else
-            local configs = {"-b", "v" .. ver}
             if tt == "client" then
                 table.insert(configs, "--target_type=client")
             end
-            import("package.tools.xmake").install(package, configs)
+            import("package.tools.xmake").install(package)
         end
     end)
