@@ -29,8 +29,10 @@ jobs:
         run: |
           SRC="upstream/packages/l/levilamina/versions"
           DST="packages/l/levilamina-lib/versions"
-          rm -rf "$DST"
-          cp -r "$SRC" "$DST"
+          for f in "$SRC"/*; do
+            bf=$(basename "$f")
+            cp "$f" "$DST/$bf"
+          done
 
 
       - name: Commit and push
