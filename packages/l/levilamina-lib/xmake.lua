@@ -12,8 +12,6 @@ package("levilamina-lib")
     -- ============================================================
     -- 优先：你的仓库里的预编译 SDK
     -- 用 version 目录文件管理版本号
-    add_urls("https://github.com/wed150/Levilamina-lib/releases/download/v$(version)/levilamina-v$(version)-$(mode)-$(target_type)-windows-x64.zip",
-             {alias = "prebuilt"})
     -- 注：$(mode) 和 $(target_type) 需要 xmake >= 2.8 支持在 url 里展开 config 值
     -- 如果展开不生效，退回到固定写法见下方 fallback
 
@@ -30,6 +28,8 @@ package("levilamina-lib")
     -- on_load：读版本模块决定 deps/defines（原样照抄原作者）
     -- ============================================================
     on_load(function (package)
+        local target_type = package:config("target_type")
+        package:add("urls", format("https://github.com/wed150/Levilamina-lib/releases/download/v$(version)/levilamina-sdk-v$(version)-$(target_type)-$(mode)-windows-x64.zip", target_type))
         import("core.base.semver")
         local version = package:version_str()
         local sem = semver.try_parse(version)
@@ -63,45 +63,43 @@ package("levilamina-lib")
     -- ============================================================
     -- on_install：判断走预编译还是源码编译
     -- ============================================================
-    on_install(function (package)
-        local version = package:version_str()
+on_install(function (package)
+    local version = package:version_str()
 
-        -- 检查当前版本是否有预编译可用
-        -- 通过读 prebuilt_versions.txt 判断
-        local prebuilt_versions = import("versions.prebuilt_list")()
-        local has_prebuilt = false
-        for _, v in ipairs(prebuilt_versions) do
-            if v == version then
+    -- 直接读 prebuilt_versions.txt 判断是否有预编译
+    local has_prebuilt = false
+    local f = io.open("versions/prebuilt_versions.txt", "r")
+    if f then
+        for line in f:lines() do
+            local ver = line:trim():split("%s+")[1]
+            if ver == version then
                 has_prebuilt = true
                 break
             end
         end
+        f:close()
+    end
 
-        if has_prebuilt then
-            -- ===== 走预编译路径 =====
-            -- 此时 xmake 已经根据 add_urls 的 alias 优先级
-            -- 自动下载了预编译 zip（alias = prebuilt）
-            -- 解压后根目录有 bin/ include/ lib/
-            if os.isdir("include") then
-                os.cp("include/*", package:installdir("include"))
-            end
-            if os.isdir("lib") then
-                os.cp("lib/*", package:installdir("lib"))
-            end
-            if os.isdir("bin") then
-                os.cp("bin/*", package:installdir("bin"))
-            end
-        else
-            -- ===== fallback：拉源码编译（原作者的路径）=====
-            -- 此时 xmake 走了 alias = source，已经 git clone 好源码
-            cprint(
-                "${bright yellow}warning: ${clear}No precompiled version: ${bright cyan}"
-                .. version .. "${clear}, will compile using the source code."
-            )
-            if package:config("target_type") == "server" then
-                import("package.tools.xmake").install(package)
-            else
-                import("package.tools.xmake").install(package, {"--target_type=client"})
-            end
+    if has_prebuilt then
+        -- 预编译路径
+        if os.isdir("include") then
+            os.cp("include/*", package:installdir("include"))
         end
-    end)
+        if os.isdir("lib") then
+            os.cp("lib/*", package:installdir("lib"))
+        end
+        if os.isdir("bin") then
+            os.cp("bin/*", package:installdir("bin"))
+        end
+    else
+        -- fallback 源码编译
+        cprint("${bright yellow}warning: ${clear}No precompiled version: ${bright cyan}"
+            .. version .. "${clear}, will compile using the source code.")
+        if package:config("target_type") == "server" then
+            import("package.tools.xmake").install(package)
+        else
+            import("package.tools.xmake").install(package, {"--target_type=client"})
+        end
+    end
+end)
+
