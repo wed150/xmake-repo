@@ -6,19 +6,17 @@ package("levilamina-lib")
     add_configs("target_type", {default = "server", values = {"server", "client"}})
     add_configs("mode", {default = "release", values = {"debug", "release"}})
 
-    add_urls("https://github.com/LiteLDev/LeviLamina.git")
+    add_urls("")--怎么没有还会报错(怒)
     add_versionfiles("versions/versions.txt")
 
     on_load(function (package)
         local tt = package:config("target_type")
         package:add("defines", tt == "server" and "LL_PLAT_S" or "LL_PLAT_C")
-
         local v = package:version_str()
         import("core.base.semver")
         local sem = semver.try_parse(v)
         if sem and sem:le("0.12.4") then v = "old" end
         v = v:gsub("%.", "_")
-
         local mod = import("versions." .. v, {try = true})
         if mod then
             mod.load(package)
@@ -28,32 +26,43 @@ package("levilamina-lib")
     end)
 
     on_install(function (package)
-        local tt = package:config("target_type")
+        local tt   = package:config("target_type")
         local mode = package:config("mode")
-        local ver = package:version_str()
-        local key = ver .. "-windows-" .. mode .. "-" .. tt
-
+        local ver  = package:version_str() or ""
+        local key  = ver .. "-windows-" .. mode .. "-" .. tt
         local f = io.open(package:scriptdir() .. "/versions/prebuilt_versions.txt")
-        local sha
+        local sha, is_prebuilt = nil, false
         if f then
             for line in f:lines() do
                 local k, s = line:match("^(%S+)%s+(%S+)$")
-                if k == key then sha = s; break end
+                if k == key then sha = s; is_prebuilt = true; break end
             end
             f:close()
         end
-
-        if sha then
+        if is_prebuilt and sha then
             local file = ("levilamina-sdk-v%s-%s-%s-windows-x64.zip"):format(ver, tt, mode)
-            local url = ("https://github.com/wed150/Levilamina-lib/releases/download/v%s/%s"):format(ver, file)
-            local zip = path.join(os.tmpdir(), file)
-
+            local url  = ("https://github.com/wed150/Levilamina-lib/releases/download/v%s/%s"):format(ver, file)
+            local zip  = path.join(os.tmpdir(), file)
             import("net.http").download(url, zip, {sha256 = sha})
             import("utils.archive").extract(zip, package:installdir())
         else
-            if tt == "client" then
-                table.insert(configs, "--target_type=client")
+            local git = import("devel.git")
+            local sourcedir1 = path.directory(package:builddir())  -- 父目录：.../source/levilamina-lib
+            local sourcedir = path.join(sourcedir1,"arepo")
+            os.rm(sourcedir)
+            git.clone("https://github.com/LiteLDev/LeviLamina.git", {
+                depth = 1,
+                branch = "v" .. ver,
+                outputdir = sourcedir,
+                recursive = false,
+                longpaths = true,
+            })
+            local oldir = os.cd(sourcedir)
+            if package:config("target_type") == "server" then
+                import("package.tools.xmake").install(package)
+            else
+                import("package.tools.xmake").install(package, {"--target_type=client"})
             end
-            import("package.tools.xmake").install(package)
+            os.cd(oldir)
         end
     end)
